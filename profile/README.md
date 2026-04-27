@@ -30,20 +30,20 @@ The project is split across four repositories, each with one focused responsibil
 ```mermaid
 flowchart TB
     user(["👤 Browser"])
-    cf["☁️ Cloudflare<br/><sub>TLS · edge · tunnel</sub>"]
+    cf["☁️ Cloudflare edge"]
 
     subgraph home["🏠 Home server"]
         direction TB
-        cft["cloudflared<br/><sub>tunnel daemon</sub>"]
-        hook["Webhook listener<br/><sub>host service · symmetric key</sub>"]
+        cft["cloudflared tunnel"]
+        hook["Webhook listener (host)"]
 
         subgraph net["shared Docker network"]
             direction TB
-            caddy["Caddy<br/>reverse proxy"]
-            spa["React SPA<br/><sub>nginx + Vite build</sub>"]
-            api["GraphQL API<br/><sub>NestJS + Apollo</sub>"]
+            caddy["Caddy reverse proxy"]
+            spa["React SPA (nginx)"]
+            api["GraphQL API (NestJS)"]
             db[("PostgreSQL")]
-            etl["Seed script<br/><sub>Python ETL</sub>"]
+            etl["Seed script (Python)"]
         end
     end
 
