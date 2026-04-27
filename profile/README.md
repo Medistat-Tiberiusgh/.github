@@ -30,58 +30,55 @@ The project is split across four repositories, each with one focused responsibil
 ```mermaid
 flowchart TB
     user(["👤 Browser"])
-    cf["☁️ Cloudflare<br/><sub>TLS · DDoS · tunnel</sub>"]
+    cf["☁️ Cloudflare<br/><sub>TLS · edge · tunnel</sub>"]
 
     subgraph home["🏠 Home server"]
+        direction TB
         cft["cloudflared<br/><sub>tunnel daemon</sub>"]
+        hook["Webhook listener<br/><sub>host service · symmetric key</sub>"]
 
         subgraph net["shared Docker network"]
             direction TB
             caddy["Caddy<br/>reverse proxy"]
             spa["React SPA<br/><sub>nginx + Vite build</sub>"]
             api["GraphQL API<br/><sub>NestJS + Apollo</sub>"]
-            docs["Docs<br/><sub>Docusaurus static</sub>"]
             db[("PostgreSQL")]
-            etl["Python ETL<br/><sub>seed script</sub>"]
-            hook["Webhook<br/>listener"]
+            etl["Seed script<br/><sub>Python ETL</sub>"]
         end
     end
-
-    ci["GitLab CI/CD<br/><sub>Kaniko · build · deploy · smoke · rollback</sub>"]
 
     user -->|HTTPS| cf
     cf -->|outbound tunnel| cft
     cft --> caddy
 
     caddy -->|/| spa
-    caddy -->|/graphql| api
     caddy -->|/auth| api
-    caddy -->|/docs| docs
+    caddy -->|/graphql| api
 
     api --> db
-    etl -. seeds .-> db
+    etl -. seeds once .-> db
 
-    ci -->|webhook via tunnel| hook
-    hook -. restart .-> api
+    hook -. docker pull + restart .-> api
 
     classDef container fill:#1f2937,stroke:#475569,color:#e2e8f0
     classDef external fill:#0f172a,stroke:#334155,color:#94a3b8
-    class caddy,spa,api,docs,db,etl,hook,cft container
-    class cf,ci external
+    classDef host fill:#0b1220,stroke:#475569,color:#e2e8f0,stroke-dasharray: 4 4
+    class caddy,spa,api,db,etl container
+    class cf external
+    class cft,hook host
 ```
 
-The whole stack runs on a single home server behind a **Cloudflare tunnel** — `cloudflared` opens an outbound connection to Cloudflare's edge, so no inbound ports are exposed on the home network. Cloudflare handles TLS and basic edge protection; everything past the tunnel is plain HTTP on a private Docker network.
+The whole stack runs on a single home server behind a **Cloudflare tunnel**. `cloudflared` opens an outbound connection to Cloudflare's edge, so the home network has no inbound ports forwarded — Cloudflare handles TLS and basic edge protection, and everything past the tunnel is plain HTTP.
 
-Caddy fans traffic out by path:
+Caddy fans inbound traffic out by path:
 
 | Path | Routed to | What it is |
 |---|---|---|
 | `/` | React SPA (nginx) | The dashboard |
 | `/auth` | GraphQL API | REST endpoint for the OIDC login exchange |
 | `/graphql` | GraphQL API | Schema + playground + every authenticated query/mutation |
-| `/docs` | Docusaurus | The public documentation site |
 
-The API, PostgreSQL, and the seed script all sit on the same shared Docker network, so the API talks to Postgres by service name with no host-port exposure. The webhook listener, also on the network, is the only piece touched by CI/CD — it reacts to deploy signals from GitLab and restarts the API container with the freshly pushed image.
+The API, PostgreSQL, and the one-shot seed script all sit on the same shared Docker network, so the API talks to Postgres by service name. The **webhook listener is not a container** — it is a small daemon installed directly on the host, authenticated with a symmetric `X-Webhook-Token` header. When CI publishes a fresh image, the listener pulls it and restarts the API container; on a failed smoke test it tag-swaps `previous` back to `latest` and restarts again. The host is the right place for it because doing a `docker pull` and `docker compose up -d` from inside a container would mean mounting the host's Docker socket, which would hand any compromise of that container full root on the box.
 
 ---
 
@@ -193,31 +190,37 @@ A custom `JwtAuthGuard` validates the token on every protected query/mutation, a
 
 ### Production topology
 
-The stack lives on a self-hosted home server, reached from the public internet through a **Cloudflare tunnel** (`cloudflared`). The tunnel opens outbound from the home network to Cloudflare's edge, so the router has no inbound ports forwarded — Cloudflare handles TLS and edge protection, and everything past the tunnel is plain HTTP on a private Docker network.
+The stack lives on a self-hosted home server, reached from the public internet through a **Cloudflare tunnel** (`cloudflared`). The tunnel opens outbound from the home network to Cloudflare's edge, so the router has no inbound ports forwarded — Cloudflare handles TLS and edge protection, and everything past the tunnel is plain HTTP.
+
+**On the host**
+
+| Service | Role |
+|---|---|
+| **cloudflared** | Outbound tunnel daemon — terminates the Cloudflare side of the connection on the home network |
+| **Webhook listener** | Small host-installed daemon, authenticated with a symmetric `X-Webhook-Token`. Pulls fresh images and runs `docker compose up -d` on deploy / rollback. Lives on the host (rather than in a container) so it never needs the Docker socket mounted into a network-exposed container. |
+
+**On the shared Docker network**
 
 | Container | Role |
 |---|---|
-| **cloudflared** | Outbound tunnel daemon — terminates the Cloudflare side of the connection on the home network |
-| **Caddy** | Reverse proxy — fans traffic out by path: `/` → SPA, `/auth` → API (OIDC login), `/graphql` → API, `/docs` → Docusaurus |
+| **Caddy** | Reverse proxy — fans traffic out by path: `/` → SPA, `/auth` → API (OIDC login), `/graphql` → API |
 | **React SPA (nginx)** | Static Vite build served from nginx |
 | **GraphQL API** | NestJS + Apollo Server |
-| **Docusaurus** | Static documentation site |
 | **PostgreSQL** | Prescription dataset and user data |
 | **Seed script** | Python ETL that loads the dataset into Postgres on first boot |
-| **Webhook listener** | Reacts to deploy signals from CI/CD and restarts the API container with the new image |
 
-All containers share a single Docker network, so the API reaches Postgres by service name and nothing on the public internet ever talks to the home server directly — every request comes in through the Cloudflare tunnel.
+The API reaches Postgres by service name on the shared network. Nothing on the public internet ever talks to the home server directly — every request comes in through the Cloudflare tunnel.
 
-### CI/CD pipeline (GitLab)
+### CI/CD pipeline (GitHub Actions)
 
-Every push to `main` of the API repo triggers four stages:
+Every push to `main` of the API repo triggers four jobs:
 
-1. **Build** — Kaniko builds the Docker image and pushes it to the GitLab Container Registry, tagged with both the commit SHA and `latest`. Kaniko is used because LNU's runners are incompatible with Docker-in-Docker.
-2. **Deploy** — a webhook is sent to the production server. The listener pulls `latest` and restarts the API container.
-3. **Smoke test** — the Bruno CLI runs the full test suite against the live production API.
-4. **Rollback** — only triggered if the smoke test fails. A second webhook tells the server to swap `previous` back to `latest` and restart. No registry pull is needed because the previous image is already on disk; recovery is as fast as a container reboot.
+1. **Build & push image** — `docker/build-push-action` builds the image and pushes it to **GHCR** (`ghcr.io`), tagged with both the short commit SHA and `latest`, with metadata extracted via `docker/metadata-action`.
+2. **Deploy** — `curl -X POST` against the deploy webhook on the home server, authenticated with `X-Webhook-Token`. The host-side listener pulls `latest` and restarts the API container.
+3. **Smoke test** — the Bruno CLI runs the full collection against the live production API at `https://medistat.tiberiusgh.com`. A short sleep gives the new container time to come up first.
+4. **Rollback** — runs only `if: failure()` after smoke test. A second webhook tells the host to swap `previous` back to `latest` and restart. Recovery is as fast as a container reboot — no registry pull is needed because the previous image is still on disk.
 
-Both webhook endpoints require a symmetric token in `X-Gitlab-Token`. The URLs are stored as masked CI variables and never appear in logs or in the repository.
+The webhook URLs and the symmetric token live in GitHub repository secrets and never appear in logs or in the repository. The frontend repo has the same shape minus the smoke-test/rollback stages.
 
 ---
 
@@ -251,7 +254,7 @@ Because every run is bookended by a unique `test_<timestamp>` user and a cleanup
 | Visualizations | **Hand-rolled SVG + `d3-geo`** | Full control over the visual language; no chart-library lock-in |
 | ETL | **Python + uv** | Best-in-class for chunked CSV processing on a multi-GB dataset |
 | Reverse proxy | **Caddy** | Automatic TLS via Let's Encrypt, simple config |
-| CI/CD | **GitLab CI + Kaniko + webhooks** | Works around DinD-restricted runners and avoids giving CI direct SSH to the server |
+| CI/CD | **GitHub Actions + GHCR + webhooks** | Hosted runners build & push the image; a host-installed webhook listener does the deploy, so CI never needs SSH to the server |
 | API tests | **Bruno** | Plain-file collections that version-control cleanly and run in CI |
 | Docs site | **Docusaurus** | Markdown-driven, easy to host as static content alongside the API |
 
