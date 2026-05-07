@@ -36,16 +36,21 @@ flowchart TB
     subgraph home["🏠 Home server"]
         direction TB
         cft["cloudflared tunnel"]
-        hook["Webhook listener (host)"]
+        hook["Webhook listener (host)<br/><i>verifies X-Webhook-Token</i>"]
 
         subgraph net["shared Docker network"]
             direction TB
             caddy["Caddy reverse proxy"]
-            spa["React SPA (nginx)"]
-            api["GraphQL API (NestJS)"]
-            docs["Docs site (Docusaurus)<br/>(not yet migrated from school server)"]
+
+            subgraph apps["deploy targets"]
+                direction LR
+                spa["React SPA<br/>(nginx)"]
+                api["GraphQL API<br/>(NestJS)"]
+                docs["Docs site<br/>(Docusaurus)*"]
+            end
+
             db[("PostgreSQL")]
-            etl["Seed script (Python)"]
+            etl["Seed script<br/>(Python)"]
         end
     end
 
@@ -54,25 +59,27 @@ flowchart TB
     cft --> caddy
 
     caddy -->|/| spa
-    caddy -->|/auth| api
-    caddy -->|/graphql| api
+    caddy -->|/auth, /graphql| api
     caddy -->|/docs| docs
 
     api --> db
     etl -. seeds once .-> db
 
-    gh ==>|"POST /deploy<br/>X-Webhook-Token header"| hook
-    hook -. docker pull + restart .-> api
-    hook -. docker pull + restart .-> spa
-    hook -. docker pull + restart .-> docs
+    gh ==>|"POST /deploy<br/>X-Webhook-Token"| hook
+    hook -. "docker pull + restart" .-> apps
 
     classDef container fill:#1f2937,stroke:#475569,color:#e2e8f0
     classDef external fill:#0f172a,stroke:#334155,color:#94a3b8
     classDef host fill:#0b1220,stroke:#475569,color:#e2e8f0,stroke-dasharray: 4 4
+    classDef group fill:#111827,stroke:#334155,color:#cbd5e1,stroke-dasharray: 2 3
     class caddy,spa,api,docs,db,etl container
     class cf,gh external
     class cft,hook host
+    class apps group
 ```
+
+<sub>* Docs container is planned — the Docusaurus site is currently still served from the school's server and has not yet been migrated to the home stack.</sub>
+
 
 The whole stack runs on a single home server behind a **Cloudflare tunnel**. `cloudflared` opens an outbound connection to Cloudflare's edge, so the home network has no inbound ports forwarded — Cloudflare handles TLS and basic edge protection, and everything past the tunnel is plain HTTP.
 
