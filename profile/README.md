@@ -29,14 +29,18 @@ The project is split across four repositories, each with one focused responsibil
 
 ```mermaid
 flowchart TB
-    user(["👤 Browser"])
-    cf["☁️ Cloudflare edge"]
-    gh["🐙 GitHub Actions"]
+    subgraph topRow[" "]
+        direction LR
+        user(["👤 Browser"])
+        cf["☁️ Cloudflare edge"]
+        gh["🐙 GitHub Actions"]
+    end
 
     subgraph home["🏠 Home server"]
         direction TB
         cft["cloudflared tunnel"]
-        hook["Webhook listener (host)<br/><i>verifies X-Webhook-Token</i>"]
+        hook["`**Webhook listener** (host)
+        _verifies X-Webhook-Token_`"]
 
         subgraph net["shared Docker network"]
             direction TB
@@ -44,13 +48,20 @@ flowchart TB
 
             subgraph apps["deploy targets"]
                 direction LR
-                spa["React SPA<br/>(nginx)"]
-                api["GraphQL API<br/>(NestJS)"]
-                docs["Docs site<br/>(Docusaurus)*"]
+                spa["`**web**
+                React SPA + nginx`"]
+                api["`**graphql**
+                NestJS + Apollo`"]
+                docs["`**docs**
+                Docusaurus *`"]
             end
 
-            db[("PostgreSQL")]
-            etl["Seed script<br/>(Python)"]
+            subgraph data["data layer"]
+                direction LR
+                db[("PostgreSQL")]
+                etl["`**db-etl**
+                Python ETL`"]
+            end
         end
     end
 
@@ -65,20 +76,23 @@ flowchart TB
     api --> db
     etl -. seeds once .-> db
 
-    gh ==>|"POST /deploy<br/>X-Webhook-Token"| hook
+    gh ==>|"POST /deploy — X-Webhook-Token"| hook
     hook -. "docker pull + restart" .-> apps
 
-    classDef container fill:#1f2937,stroke:#475569,color:#e2e8f0
-    classDef external fill:#0f172a,stroke:#334155,color:#94a3b8
-    classDef host fill:#0b1220,stroke:#475569,color:#e2e8f0,stroke-dasharray: 4 4
-    classDef group fill:#111827,stroke:#334155,color:#cbd5e1,stroke-dasharray: 2 3
+    classDef container fill:#1e3a5f,stroke:#3b82f6,color:#e0f2fe
+    classDef external fill:#1e293b,stroke:#64748b,color:#cbd5e1
+    classDef host fill:#422006,stroke:#f59e0b,color:#fde68a,stroke-dasharray: 4 4
     class caddy,spa,api,docs,db,etl container
-    class cf,gh external
+    class user,cf,gh external
     class cft,hook host
-    class apps group
+    style topRow fill:transparent,stroke:transparent
+    style home fill:#0f172a,stroke:#475569,color:#e2e8f0
+    style net fill:#1e293b,stroke:#475569,color:#e2e8f0,stroke-dasharray: 2 3
+    style apps fill:#172554,stroke:#3b82f6,color:#bfdbfe,stroke-dasharray: 2 3
+    style data fill:#2e1065,stroke:#a855f7,color:#e9d5ff,stroke-dasharray: 2 3
 ```
 
-<sub>* Docs container is planned — the Docusaurus site is currently still served from the school's server and has not yet been migrated to the home stack.</sub>
+> **\* Note on `docs`** — the Docusaurus site is shown here as a future container in the home stack. It is currently still hosted on the **Linnaeus University server** and has not yet been migrated. The deploy webhook for it is planned but not yet wired up.
 
 
 The whole stack runs on a single home server behind a **Cloudflare tunnel**. `cloudflared` opens an outbound connection to Cloudflare's edge, so the home network has no inbound ports forwarded — Cloudflare handles TLS and basic edge protection, and everything past the tunnel is plain HTTP.
