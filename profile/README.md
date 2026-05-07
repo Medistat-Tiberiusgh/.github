@@ -31,6 +31,7 @@ The project is split across four repositories, each with one focused responsibil
 flowchart TB
     user(["👤 Browser"])
     cf["☁️ Cloudflare edge"]
+    gh["🐙 GitHub Actions"]
 
     subgraph home["🏠 Home server"]
         direction TB
@@ -42,6 +43,7 @@ flowchart TB
             caddy["Caddy reverse proxy"]
             spa["React SPA (nginx)"]
             api["GraphQL API (NestJS)"]
+            docs["Docs site (Docusaurus)<br/>(not yet migrated from school server)"]
             db[("PostgreSQL")]
             etl["Seed script (Python)"]
         end
@@ -54,17 +56,21 @@ flowchart TB
     caddy -->|/| spa
     caddy -->|/auth| api
     caddy -->|/graphql| api
+    caddy -->|/docs| docs
 
     api --> db
     etl -. seeds once .-> db
 
+    gh ==>|"POST /deploy<br/>X-Webhook-Token header"| hook
     hook -. docker pull + restart .-> api
+    hook -. docker pull + restart .-> spa
+    hook -. docker pull + restart .-> docs
 
     classDef container fill:#1f2937,stroke:#475569,color:#e2e8f0
     classDef external fill:#0f172a,stroke:#334155,color:#94a3b8
     classDef host fill:#0b1220,stroke:#475569,color:#e2e8f0,stroke-dasharray: 4 4
-    class caddy,spa,api,db,etl container
-    class cf external
+    class caddy,spa,api,docs,db,etl container
+    class cf,gh external
     class cft,hook host
 ```
 
