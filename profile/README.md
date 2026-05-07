@@ -91,10 +91,16 @@ flowchart TB
     style apps fill:#172554,stroke:#3b82f6,color:#bfdbfe,stroke-dasharray: 2 3
     style data fill:#2e1065,stroke:#a855f7,color:#e9d5ff,stroke-dasharray: 2 3
 
-    linkStyle default stroke:#cbd5e1,stroke-width:2px,color:#0f172a
-    linkStyle 7 stroke:#a855f7,stroke-width:2px
-    linkStyle 8 stroke:#f59e0b,stroke-width:3px
-    linkStyle 9 stroke:#f59e0b,stroke-width:2px
+    linkStyle 0 stroke:#f1f5f9,stroke-width:2.5px
+    linkStyle 1 stroke:#f1f5f9,stroke-width:2.5px
+    linkStyle 2 stroke:#f1f5f9,stroke-width:2.5px
+    linkStyle 3 stroke:#60a5fa,stroke-width:2.5px
+    linkStyle 4 stroke:#60a5fa,stroke-width:2.5px
+    linkStyle 5 stroke:#60a5fa,stroke-width:2.5px
+    linkStyle 6 stroke:#c084fc,stroke-width:3px
+    linkStyle 7 stroke:#a855f7,stroke-width:2.5px
+    linkStyle 8 stroke:#fbbf24,stroke-width:3.5px
+    linkStyle 9 stroke:#fbbf24,stroke-width:2.5px
 ```
 
 > **\* Note on `docs`** — the Docusaurus site is shown here as a future container in the home stack. It is currently still hosted on the **Linnaeus University server** and has not yet been migrated. The deploy webhook for it is planned but not yet wired up.
