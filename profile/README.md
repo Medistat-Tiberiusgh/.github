@@ -14,96 +14,22 @@
 
 Medistat lets a person keep a private list of the medications they take and, for each one, see how it sits in the broader Swedish prescribing landscape — regional popularity, age × gender demographics, and multi-year trends. Every insight is derived from open data published by **Socialstyrelsen** (Sweden's National Board of Health and Welfare), spanning every prescription drug dispensed at Swedish pharmacies between 2006 and 2024 — roughly **46 million rows** of national health data, joined with narcotic classifications from **Läkemedelsverket** (Medical Products Agency).
 
-The project is split across four repositories, each with one focused responsibility:
+The project is split across three repositories, each with one focused responsibility:
 
 | Repository | Stack | Role |
 |---|---|---|
 | **[`graphql`](https://github.com/Medistat-Tiberiusgh/graphql)** | NestJS · Apollo Server · PostgreSQL · TypeScript | GraphQL API serving private user data and aggregated public statistics |
-| **[`web`](https://github.com/Medistat-Tiberiusgh/web)** | React 19 · Vite · Tailwind v4 · TypeScript | Single-page dashboard with hand-built SVG visualizations |
+| **[`web`](https://github.com/Medistat-Tiberiusgh/web)** | React · Vite · Tailwind · TypeScript | Single-page dashboard with for visualizations |
 | **[`db-etl`](https://github.com/Medistat-Tiberiusgh/db-etl)** | Python · uv · Docker · PostgreSQL | ETL pipeline that preprocesses and seeds the prescription dataset |
 
 ---
 
-## Architecture at a glance
-
-```mermaid
-flowchart TB
-    subgraph topRow[" "]
-        direction LR
-        user(["👤 Browser"])
-        cf["☁️ Cloudflare edge"]
-        gh["🐙 GitHub Actions"]
-    end
-
-    subgraph home["🏠 Home server"]
-        direction TB
-        cft["cloudflared tunnel"]
-        hook["`**Webhook listener** (host)
-        _verifies X-Webhook-Token_`"]
-
-        subgraph net["shared Docker network"]
-            direction TB
-            caddy["Caddy reverse proxy"]
-
-            subgraph apps["deploy targets"]
-                direction LR
-                spa["`**web**
-                React SPA + nginx`"]
-                api["`**graphql**
-                NestJS + Apollo`"]
-                docs["`**docs**
-                Docusaurus *`"]
-            end
-
-            subgraph data["data layer"]
-                direction LR
-                db[("PostgreSQL")]
-                etl["`**db-etl**
-                Python ETL`"]
-            end
-        end
-    end
-
-    user -->|HTTPS| cf
-    cf -->|outbound tunnel| cft
-    cft --> caddy
-
-    caddy -->|/| spa
-    caddy -->|/auth, /graphql| api
-    caddy -->|/docs| docs
-
-    api --> db
-    etl -. seeds once .-> db
-
-    gh ==>|"POST /deploy — X-Webhook-Token"| hook
-    hook -. "docker pull + restart" .-> apps
-
-    classDef container fill:#1e3a5f,stroke:#3b82f6,color:#e0f2fe
-    classDef external fill:#1e293b,stroke:#64748b,color:#cbd5e1
-    classDef host fill:#422006,stroke:#f59e0b,color:#fde68a,stroke-dasharray: 4 4
-    class caddy,spa,api,docs,db,etl container
-    class user,cf,gh external
-    class cft,hook host
-    style topRow fill:transparent,stroke:transparent
-    style home fill:#0f172a,stroke:#475569,color:#e2e8f0
-    style net fill:#1e293b,stroke:#475569,color:#e2e8f0,stroke-dasharray: 2 3
-    style apps fill:#172554,stroke:#3b82f6,color:#bfdbfe,stroke-dasharray: 2 3
-    style data fill:#2e1065,stroke:#a855f7,color:#e9d5ff,stroke-dasharray: 2 3
-
-    linkStyle 0 stroke:#f1f5f9,stroke-width:2.5px
-    linkStyle 1 stroke:#f1f5f9,stroke-width:2.5px
-    linkStyle 2 stroke:#f1f5f9,stroke-width:2.5px
-    linkStyle 3 stroke:#60a5fa,stroke-width:2.5px
-    linkStyle 4 stroke:#60a5fa,stroke-width:2.5px
-    linkStyle 5 stroke:#60a5fa,stroke-width:2.5px
-    linkStyle 6 stroke:#c084fc,stroke-width:3px
-    linkStyle 7 stroke:#a855f7,stroke-width:2.5px
-    linkStyle 8 stroke:#fbbf24,stroke-width:3.5px
-    linkStyle 9 stroke:#fbbf24,stroke-width:2.5px
-```
+## Architecture 
 
 
-The whole stack runs on a single home server behind a **Cloudflare tunnel**. `cloudflared` opens an outbound connection to Cloudflare's edge, so the home network has no inbound ports forwarded — Cloudflare handles TLS and basic edge protection, and everything past the tunnel is plain HTTP.
+<img width="4200" height="2888" alt="architecture" src="https://github.com/user-attachments/assets/ef5ff4b5-5d50-48cb-bbe5-6d65ae2ddaca" />
+
+The whole stack runs on a single home server behind a **Cloudflare tunnel**. `cloudflared` opens an outbound connection to Cloudflare's edge, so the home network has no inbound ports forwarded — Cloudflare handles TLS and basic edge protection.
 
 Caddy fans inbound traffic out by path:
 
@@ -112,8 +38,10 @@ Caddy fans inbound traffic out by path:
 | `/` | React SPA (nginx) | The dashboard |
 | `/auth` | GraphQL API | REST endpoint for the OIDC login exchange |
 | `/graphql` | GraphQL API | Schema + playground + every authenticated query/mutation |
+| `/deploy` | webhook | A service running on my server that updates specific containers. The endpoint is gated with symmetric keys.  |
 
-The API, PostgreSQL, and the one-shot seed script all sit on the same shared Docker network, so the API talks to Postgres by service name. The **webhook listener is not a container** — it is a small daemon installed directly on the host, authenticated with a symmetric `X-Webhook-Token` header. When CI publishes a fresh image, the listener pulls it and restarts the API container; on a failed smoke test it tag-swaps `previous` back to `latest` and restarts again. The host is the right place for it because doing a `docker pull` and `docker compose up -d` from inside a container would mean mounting the host's Docker socket, which would hand any compromise of that container full root on the box.
+
+The API, PostgreSQL, and the seed script all sit on the same shared Docker network, so the API talks to Postgres by service name. The **webhook listener is not a container** — it is a small daemon installed directly on the host, authenticated with a symmetric `X-Webhook-Token` header. When CI publishes a fresh image, the listener pulls it and restarts the API container; on a failed smoke test it tag-swaps `previous` back to `latest` and restarts again. I've choosen to install it as a deamon since it needs to run `docker pull` and `docker compose up -d` and doing that from the container needs mounting the host's Docker socket, which seemed too complex for me to fiddle with with my current knowledge. Installing it as a deamon was more straight forward.
 
 ---
 
@@ -130,13 +58,12 @@ A NestJS application exposing a single `/graphql` endpoint backed by Apollo Serv
 - **`DrugInsights` wrapper type** — chosen so future insight dimensions (trend, demographics, gender split) can be added as new fields without a breaking schema change.
 - **Typed errors** — every domain error is an `AppError extends GraphQLError` with a `code` extension (`BAD_USER_INPUT`, `UNAUTHENTICATED`, `NOT_FOUND`, `CONFLICT`). A global formatter masks anything else as a generic `INTERNAL_SERVER_ERROR` so implementation details never leak.
 - **Defence in depth on input** — application-level length and shape checks first, with `CHECK` / `UNIQUE` / foreign key constraints in the database as the second line.
-- **Throttled auth surface** — `register`/`login` are rate-limited via `@nestjs/throttler` (5 req/min in production).
 
 [Browse the schema in the playground →](https://medistat.tiberiusgh.com/graphql)
 
 ### [`web`](https://github.com/Medistat-Tiberiusgh/web) — the dashboard
 
-A React 19 + TypeScript single-page app built with Vite, styled with Tailwind v4 and HeroUI v3. **No charting library** — every visualization is hand-built with SVG, and `d3-geo` only handles the map projection.
+A React, TypeScript single-page app built with Vite, styled with Tailwind, shadcn d3 and echarts.
 
 **What it shows**
 
@@ -146,13 +73,7 @@ A React 19 + TypeScript single-page app built with Vite, styled with Tailwind v4
 - **Age × gender heatmap** — the highest-signal view for spotting "this drug is mostly prescribed to women in their 50s" at a glance.
 - **Choropleth of Sweden** — D3-projected SVG, hover and click linked to a sortable regional ranking list.
 - **Gender gap chart** — mirrored bars showing per-1000 dispensing by gender across years.
-- **Saved medications sidebar** — keep a working set of drugs to switch between without re-searching.
-
-**Implementation notes**
-
-- Hooks-first state — `useDashboard` is the single source of truth and composes smaller hooks (`useDashboardInsights`, `useDrugInsights`, `useFilters`) so `Dashboard.tsx` stays purely presentational.
-- A tiny custom GraphQL client lives in `src/lib/graphql.ts` — no Apollo, no urql.
-- Multi-stage Dockerfile: Vite build, then nginx with a custom `nginx.conf` tuned for SPA routing.
+- **Saved medications** — keep a working set of drugs to switch between without re-searching.
 
 [Open the live dashboard →](https://medistat.tiberiusgh.com)
 
@@ -200,7 +121,7 @@ A **sample dataset** (~2.5 MB vs the full 1.25 GB) ships in `sample/` so the API
 
 ## Authentication
 
-The API delegates identity to **GitHub via OAuth 2.0 with PKCE** (RFC 7636, `S256`), then issues its own session token as a JWT signed with HS256.
+The API delegates identity to **GitHub and Google via OAuth 2.0 with PKCE** (RFC 7636, `S256`), then issues its own session token as a JWT signed with HS256.
 
 1. The frontend generates a cryptographically random `code_verifier`, derives a SHA-256 `code_challenge`, and stores the verifier in `sessionStorage`.
 2. The user is redirected to GitHub's authorization endpoint with the challenge attached.
@@ -280,8 +201,8 @@ Because every run is bookended by a unique `test_<timestamp>` user and a cleanup
 | GraphQL server | **Apollo Server** | Mature ecosystem, integrates cleanly with NestJS via decorators |
 | Database | **PostgreSQL** | Clear relational structure in the dataset; handles the data volume well |
 | DB driver | **`pg` (raw SQL)** | Full control over query shape against a 46 M-row table; no risk of an ORM generating opaque, inefficient queries |
-| Frontend framework | **React 19 + Vite** | Modern hooks-first composition; Vite for fast dev/build |
-| Styling | **Tailwind v4 + HeroUI v3** | Utility-first styling, ready-made accessible primitives |
+| Frontend framework | **React + Vite** | Modern hooks-first composition; Vite for fast dev/build |
+| Styling | **Tailwind + shadcn** | Utility-first styling, ready-made accessible primitives |
 | Visualizations | **Hand-rolled SVG + `d3-geo`** | Full control over the visual language; no chart-library lock-in |
 | ETL | **Python + uv** | Best-in-class for chunked CSV processing on a multi-GB dataset |
 | Reverse proxy | **Caddy** | Automatic TLS via Let's Encrypt, simple config |
