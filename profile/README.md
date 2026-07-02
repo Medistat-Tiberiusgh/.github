@@ -4,7 +4,7 @@
 
 **Personal medication tracking, enriched with Sweden's national prescription statistics.**
 
-[Live dashboard](https://medistat.tiberiusgh.com) · [API playground](https://medistat.tiberiusgh.com/graphql) · [Documentation](https://medistat.tiberiusgh.com/docs/)
+[Live dashboard](https://medistat.tiberiusgh.com) · [API playground](https://medistat.tiberiusgh.com/graphql)
 
 </div>
 
@@ -21,7 +21,6 @@ The project is split across four repositories, each with one focused responsibil
 | **[`graphql`](https://github.com/Medistat-Tiberiusgh/graphql)** | NestJS · Apollo Server · PostgreSQL · TypeScript | GraphQL API serving private user data and aggregated public statistics |
 | **[`web`](https://github.com/Medistat-Tiberiusgh/web)** | React 19 · Vite · Tailwind v4 · TypeScript | Single-page dashboard with hand-built SVG visualizations |
 | **[`db-etl`](https://github.com/Medistat-Tiberiusgh/db-etl)** | Python · uv · Docker · PostgreSQL | ETL pipeline that preprocesses and seeds the prescription dataset |
-| **[`docs`](https://github.com/Medistat-Tiberiusgh/docs)** | Docusaurus · Markdown | Public documentation site for API consumers |
 
 ---
 
@@ -103,8 +102,6 @@ flowchart TB
     linkStyle 9 stroke:#fbbf24,stroke-width:2.5px
 ```
 
-> **\* Note on `docs`** — the Docusaurus site is shown here as a future container in the home stack. It is currently still hosted on the **Linnaeus University server** and has not yet been migrated. The deploy webhook for it is planned but not yet wired up.
-
 
 The whole stack runs on a single home server behind a **Cloudflare tunnel**. `cloudflared` opens an outbound connection to Cloudflare's edge, so the home network has no inbound ports forwarded — Cloudflare handles TLS and basic edge protection, and everything past the tunnel is plain HTTP.
 
@@ -177,10 +174,6 @@ A Python pipeline that turns five raw CSVs into a queryable PostgreSQL schema. B
 - `preprocessing.py` — joins drug names and the narcotic classification into the raw Socialstyrelsen export and produces the four lookup tables.
 
 A **sample dataset** (~2.5 MB vs the full 1.25 GB) ships in `sample/` so the API and tests can be exercised end-to-end in seconds.
-
-### [`docs`](https://github.com/Medistat-Tiberiusgh/docs) — the documentation site
-
-A Docusaurus site published at [medistat.tiberiusgh.com/docs/](https://medistat.tiberiusgh.com/docs/), serving as the front door for API consumers. Sections include:
 
 - **Getting started** — quickstart against the playground and a walkthrough of authentication.
 - **Schema** — narrative overview of the schema and a reference page listing every valid `regionId`, `genderId`, and `ageGroupId`.
